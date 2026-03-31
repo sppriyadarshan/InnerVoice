@@ -36,7 +36,10 @@ app.post("/api/chat", async (req, res) => {
       body: JSON.stringify({
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          ...messages,
+          ...messages.map(m => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content
+          })),
         ],
         model: "openai",
       }),

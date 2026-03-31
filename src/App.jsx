@@ -4,29 +4,50 @@ import "./index.css";
 
 const speakText = (text) => {
   if (!window.speechSynthesis) return;
-  // Strip emojis so it doesn't try to read them out loud
-  const cleanText = text.replace(/[\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, '');
-  
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  
-  // Try to select a smoother, more human-sounding voice if available on the OS
+
+  // Stop current speech
+  window.speechSynthesis.cancel();
+
+  // Pre-process text for natural breathing by injecting micro-pauses (commas)
+  // before natural conjunctions or long pauses
+  let processedText = text
+    .replace(/([\u{1F600}-\u{1F6FF}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}])/gu, '') // Strip emojis
+    .replace(/\s+(but|because|so|then|and then|yet)\s+/gi, ', $1 ') // Add a breath before conjunctions
+    .replace(/\.\.\./g, ', , '); // Map ellipses to multiple commas for a slightly longer natural pause
+
+  const utterance = new SpeechSynthesisUtterance(processedText);
+
   const voices = window.speechSynthesis.getVoices();
-  const calmingVoice = voices.find(v => 
-    v.name.includes('Samantha') || 
-    v.name.includes('Zira') || 
-    v.name.includes('Google UK English Female') ||
-    v.name.includes('Serena') ||
-    (v.name.includes('Female') && v.lang.startsWith('en'))
-  );
-  
-  if (calmingVoice) {
-    utterance.voice = calmingVoice;
+  const preferredVoices = [
+    'Microsoft Aria Online', 'Microsoft Jenny Online',
+    'Google UK English Female', 'Google US English',
+    'Samantha', 'Serena', 'Zira'
+  ];
+
+  let selectedVoice = voices.find(v => (v.name.includes('Online') || v.name.includes('Natural')) && v.lang.startsWith('en'));
+  if (!selectedVoice) {
+    for (const name of preferredVoices) {
+      const found = voices.find(v => v.name.includes(name));
+      if (found) { selectedVoice = found; break; }
+    }
   }
-  
-  utterance.rate = 0.9; // Slightly slower pacing
+
+  if (selectedVoice) utterance.voice = selectedVoice;
+
+  // Make it sound "snappier"
+  utterance.rate = 1.05; // Slightly faster than normal
   utterance.pitch = 1.0;
-  window.speechSynthesis.speak(utterance);
+  utterance.volume = 1.0;
+
+  // If voices aren't loaded yet, wait for them
+  if (voices.length === 0) {
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.speak(utterance);
+  } else {
+    window.speechSynthesis.speak(utterance);
+  }
 };
+
+const phraseBoundaries = [',', '.', '!', '?', ';', ':', '...'];
 
 const TypewriterMessage = ({ text, msgId }) => {
   const [displayedText, setDisplayedText] = useState("");
@@ -55,7 +76,7 @@ const TypewriterMessage = ({ text, msgId }) => {
 
 const BreathingWidget = () => {
   const [phase, setPhase] = useState("Breathe In...");
-  
+
   useEffect(() => {
     const cycle = () => {
       setPhase("Breathe In...");
@@ -66,7 +87,7 @@ const BreathingWidget = () => {
         }, 7000); // Hold for 7s
       }, 4000); // Breathe in for 4s
     };
-    
+
     cycle();
     const interval = setInterval(cycle, 19000); // 4 + 7 + 8 = 19s
     return () => clearInterval(interval);
@@ -74,7 +95,7 @@ const BreathingWidget = () => {
 
   return (
     <div className="breathing-widget-container">
-      <div className={`breathing-circle ${phase.split(" ")[0].toLowerCase()}-${phase.split(" ")[1].toLowerCase().replace("...","")}`}>
+      <div className={`breathing-circle ${phase.split(" ")[0].toLowerCase()}-${phase.split(" ")[1].toLowerCase().replace("...", "")}`}>
         <span className="breathing-text">{phase}</span>
       </div>
     </div>
@@ -111,7 +132,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
-  
+
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("innerVoiceTheme");
     return saved || "dark";
@@ -179,7 +200,7 @@ function App() {
   const deleteChat = (e, idToDelete) => {
     e.stopPropagation();
     const newChats = chats.filter((c) => c.id !== idToDelete);
-    
+
     if (newChats.length === 0) {
       const freshChat = { id: `chat-${Date.now()}`, name: "Chat 1", messages: [createDefaultMessage()] };
       setChats([freshChat]);
@@ -200,7 +221,7 @@ function App() {
         content: m.text,
       }));
 
-      const response = await fetch("http://localhost:5000/api/chat", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: requestBody }),
@@ -218,7 +239,7 @@ function App() {
 
       if (data && data.reply) {
         aiMessage.text = data.reply;
-        
+
         if (isSpeakerOn) {
           speakText(aiMessage.text);
         }
@@ -296,7 +317,7 @@ function App() {
             chat.id === currentChatId ? { ...chat, messages: [...currentMessages, breathingMessage] } : chat
           )
         );
-        
+
         if (isSpeakerOn) {
           speakText("Let's take a breath together. Follow the circle.");
         }
@@ -376,13 +397,13 @@ function App() {
           <div className="header-info" style={{ flex: 1 }}>
             <h1>InnerVoice</h1>
             <p>
-              <span className="status-dot"></span> 
+              <span className="status-dot"></span>
               {activeChat ? activeChat.name : "always online"}
             </p>
           </div>
-          
+
           <div style={{ display: "flex", gap: "4px" }}>
-            <button 
+            <button
               className="theme-toggle-btn"
               onClick={() => setIsAudioPlaying(!isAudioPlaying)}
               style={{ background: "transparent", border: "none", color: isAudioPlaying ? "var(--accent-color)" : "var(--text-muted)", cursor: "pointer", padding: "8px", display: "flex", alignItems: "center" }}
@@ -390,8 +411,8 @@ function App() {
             >
               <Headphones size={20} />
             </button>
-            
-            <button 
+
+            <button
               className="theme-toggle-btn"
               onClick={() => setIsSpeakerOn(!isSpeakerOn)}
               style={{ background: "transparent", border: "none", color: isSpeakerOn ? "var(--accent-color)" : "var(--text-muted)", cursor: "pointer", padding: "8px", display: "flex", alignItems: "center" }}
@@ -399,8 +420,8 @@ function App() {
             >
               {isSpeakerOn ? <Volume2 size={20} /> : <VolumeX size={20} />}
             </button>
-            
-            <button 
+
+            <button
               className="theme-toggle-btn"
               onClick={() => setTheme(theme === "dark" ? "soothing" : "dark")}
               style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "8px", display: "flex", alignItems: "center" }}
@@ -416,9 +437,8 @@ function App() {
           {activeMessages.map((msg) => (
             <div
               key={msg.id}
-              className={`message-wrapper ${
-                msg.role === "ai" ? "message-ai" : msg.role === "widget" ? "message-widget" : "message-user"
-              }`}
+              className={`message-wrapper ${msg.role === "ai" ? "message-ai" : msg.role === "widget" ? "message-widget" : "message-user"
+                }`}
             >
               {msg.role === "widget" ? (
                 <BreathingWidget />
@@ -480,7 +500,7 @@ function App() {
           </div>
         </div>
       </div>
-      
+
       {/* Background Ambient Audio */}
       <audio ref={audioRef} src="https://cdn.pixabay.com/audio/2022/11/21/audio_1919cb9bfa.mp3" loop />
     </div>
